@@ -32,7 +32,7 @@ def validateWebTrafficData(df, minimumRecords = 1, expectedColumns = ['drop', 'l
     Validating each file separately makes it easier to identify individual files with problems.
     """
     assert df.shape[0] >= minimumRecords, "DataFrame had {} rows, but you've specified a minimum of {}".format(df.shape[0], minimumRecords)
-    assert set(df.columns) = set(expectedColumns), "DataFrame has columns {}, but you expected {}".format(df.columns, expectedColumns)
+    assert set(df.columns) == set(expectedColumns), "DataFrame has columns {}, but you expected {}".format(df.columns, expectedColumns)
     pass
 
 
@@ -40,7 +40,7 @@ def loadWebTrafficData(bucketURL, fileExtension):
     """Read, validate, and combine the web traffic data"""
     fileList = listFilesInBucket(bucketURL, fileExtension)
     dfDict = downloadFilesFromS3(fileList, fileExtension)
-    validateWebTrafficData(dfDict)
+    { filename: validateWebTrafficData(df) for filename, df in dfDict.items() }
     combinedDF = pl.concat([df for filename, df in dfDict.items()])
     return combinedDF
 
@@ -48,10 +48,10 @@ def loadWebTrafficData(bucketURL, fileExtension):
 def calcTimeOnPath(df):
     """Calculate the total time each user spent on each path."""
     resultsDF = (
-        full_df
-            .group_by("user_id", "path")
-            .agg(pl.sum("length").alias("total_seconds"))
-            .pivot(values = "total_seconds", index = "user_id", columns = "path", aggregate_function = "sum")
+        df
+        .group_by("user_id", "path")
+        .agg(pl.sum("length").alias("total_seconds"))
+        .pivot(values = "total_seconds", index = "user_id", columns = "path", aggregate_function = "sum")
     )
 
     return resultsDF
@@ -60,4 +60,4 @@ def calcTimeOnPath(df):
 if __name__ == "__main__":
     webTrafficData = loadWebTrafficData("https://public.wiwdata.com/engineering-challenge/data/", ".csv")
     userTimeOnPath = calcTimeOnPath(webTrafficData)
-    userTimeOnPath.write_csv("docs/data/path.csv")
+    userTimeOnPath.write_csv("user_time_on_path.csv")
