@@ -53,7 +53,7 @@ def calcTimeOnPath(df):
         .agg(pl.sum("length").alias("total_seconds"))
         .pivot(values = "total_seconds", index = "user_id", columns = "path", aggregate_function = "sum")
     )
-
+    
     return resultsDF
 
 
