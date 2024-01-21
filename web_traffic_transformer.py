@@ -3,47 +3,61 @@
 import polars as pl
 import os
 
-baseurl = "https://public.wiwdata.com/engineering-challenge/data/"
+def listFilesInBucket(bucketURL, fileExtension):
+    """List all files found with a matching extension at bucketURL
 
-# Build list of files
-# Didn't seem to have permissions to list the files, but I could download - so I
-# just built the file list manually.
-# Create a dummy function here that would list the files, but just returns this instead:
-filepaths = [ baseurl + letter + ".csv" for letter in "abcdefghijklmnopqrstuvwxyz" ]
+    In real life, I'd have permissions to list and recurse the bucket's objects; this is just a placeholder.
+    """
+    filepaths = [ bucketURL + letter + fileExtension for letter in "abcdefghijklmnopqrstuvwxyz" ]
+    return filepaths
 
-# Read the files into a dict
-# Error handling for: no file found, wrong file type
-df_dict = { os.path.basename(path): pl.read_csv(path) for path in filepaths }
+def downloadFilesFromS3(fileList, fileExtension):
+    """Download files from S3 and convert into a list of polars DataFrames.
+    
+    Returns a dictionary of polars DataFrames, keyed by their filepath for easy troubleshooting.
+    There's nothing S3-specific in here, actually, so could maybe be renamed...
+    """
+    match fileExtension:
+        case ".csv":
+            dfDict = { path: pl.read_csv(path) for path in fileList }
+        case ".parquet":
+            dfDict = { path: pl.read_parquet(path) for path in fileList }
+        case ".json":
+            dfDict = { path: pl.read_json(path) for path in fileList }
+    return dfDict
 
+def validateWebTrafficData(df, minimumRecords = 1, expectedColumns = ['drop', 'length', 'path', 'user_agent', 'user_id']):
+    """Check if this DF has enough rows and the columns required of our web traffic data.
 
-# Validate rows, columns, types
-# Minimum rows, set columns, set types, identical columns, identical types
-# Check for missing values
-row_counts = { filename: df.shape[0] for filename, df in df_dict.items() }
-column_names = { filename: df.columns for filename, df in df_dict.items() }
-column_types = { filename: df.dtypes for filename, df in df_dict.items() }
-
-row_counts
-column_names
-column_types
-
-# Combine
-df_list = [df for filename, df in df_dict.items()]
-full_df = pl.concat(df_list)
-full_df
-
-
-# Aggregate
-results = (
-    full_df
-        .group_by("user_id", "path")
-        .agg(
-            pl.len().alias("n_records"),
-            pl.sum("length").alias("total_seconds")
-        )
-)
-
-results.pivot(values = "total_seconds", index = "user_id", columns = "path", aggregate_function = "sum")
+    Validating each file separately makes it easier to identify individual files with problems.
+    """
+    assert df.shape[0] >= minimumRecords, "DataFrame had {} rows, but you've specified a minimum of {}".format(df.shape[0], minimumRecords)
+    assert set(df.columns) = set(expectedColumns), "DataFrame has columns {}, but you expected {}".format(df.columns, expectedColumns)
+    pass
 
 
-# Write to CSV
+def loadWebTrafficData(bucketURL, fileExtension):
+    """Read, validate, and combine the web traffic data"""
+    fileList = listFilesInBucket(bucketURL, fileExtension)
+    dfDict = downloadFilesFromS3(fileList, fileExtension)
+    validateWebTrafficData(dfDict)
+    combinedDF = pl.concat([df for filename, df in dfDict.items()])
+    return combinedDF
+
+
+def calcTimeOnPath(df):
+    """Calculate the total time each user spent on each path."""
+    resultsDF = (
+        full_df
+            .group_by("user_id", "path")
+            .agg(pl.sum("length").alias("total_seconds"))
+            .pivot(values = "total_seconds", index = "user_id", columns = "path", aggregate_function = "sum")
+    )
+
+    return resultsDF
+
+
+if __name__ == "__main__":
+    webTrafficData = loadWebTrafficData("https://public.wiwdata.com/engineering-challenge/data/", ".csv")
+    userTimeOnPath = calcTimeOnPath(webTrafficData)
+    userTimeOnPath.write_csv("docs/data/path.csv")
